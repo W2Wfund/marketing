@@ -18,7 +18,7 @@ using System.Text;
 using W2W.ModelKBT;
 using W2W.ModelKBT.Entities;
 
- 
+
 
 namespace W2W.Marketing
 {
@@ -28,20 +28,33 @@ namespace W2W.Marketing
         public int Pos { get; set; }
     }
 
-   
+    public class PartnerInvestData
+    {
+        public NewInvestProgram Program { get; set; }
+        public decimal BalanceInvestments { get; set; }
+        public decimal MaxLimit { get; set; }
+        public decimal AllPaymentsSum { get; set; }
+        public bool isCanPay { get; set; }
+
+        public decimal AllBinaryPaymentsSum { get; set; }
+
+
+    }
+
 
     // ПРИМЕЧАНИЕ. Команду "Переименовать" в меню "Рефакторинг" можно использовать для одновременного изменения имени класса "Service1" в коде, SVC-файле и файле конфигурации.
     // ПРИМЕЧАНИЕ. Чтобы запустить клиент проверки WCF для тестирования службы, выберите элементы Service1.svc или Service1.svc.cs в обозревателе решений и начните отладку.
     public class Service1 : IService1
     {
         static object lockObj = new object();
+        private static string mainPath;
 
         public void UnionInvestments(
             uint companyId,
-            uint partnerId, 
-            decimal sum, 
-            uint[] investments, 
-            DateTime date, 
+            uint partnerId,
+            decimal sum,
+            uint[] investments,
+            DateTime date,
             string user)
         {
             lock (lockObj)
@@ -119,11 +132,11 @@ namespace W2W.Marketing
                     companyId: companyId,
                     partnerId: partnerId,
                     documentId: documentId,
-                    article: $"Открытие инвест программы",
+                    article: $"Покупка инвест. пакета",
                     date: date,
                     sum: steppedsum,
                     paymentMethod: PaymentMethod.Inner,
-                    comment: $"Открытие инвест программы {program.ObjectName}",
+                    comment: $"Покупка инвест. пакета {program.ObjectName}",
                     documentType: null,
                     user: user), date);
 
@@ -174,7 +187,7 @@ namespace W2W.Marketing
             // Если balance отрицательный
             return Math.Floor(sum / step) * step;
         }
-        
+
         // tested: 20.11.18 21:01
         public decimal GetRefAward(
             decimal oldinvestmentssum,
@@ -264,7 +277,7 @@ namespace W2W.Marketing
         }
 
 
-
+        // old not use
         public uint BuyCamulative(
             uint companyId,
             uint marketingId,
@@ -273,7 +286,8 @@ namespace W2W.Marketing
             DateTime date,
             string user)
         {
-            lock (lockObj)
+            return 0;
+            /*lock (lockObj)
             {
                 IDataService ds = new KbtDataService();
 
@@ -297,7 +311,8 @@ namespace W2W.Marketing
                         alias: partner.Login,
                         sum: sum,
                         date: date,
-                        user: user);
+                        user: user,
+                        pos: new PlacePos());
                 }
                 else
                 {
@@ -345,19 +360,267 @@ namespace W2W.Marketing
                 ds.UpdatePartnerActivity(partnerId, true);
 
                 return placeId;
-            }
+            }*/
 
         }
 
 
         public uint BuyInvestment(
-            uint companyId, 
+            uint companyId,
             uint camulativeMarketingId,
             uint partnerId,
-            decimal sum, 
-            bool isProlonged, 
-            bool isCreateNewPlace, 
-            DateTime date, 
+            decimal sum,
+            bool isProlonged,
+            bool isCreateNewPlace,
+            DateTime date,
+            string user)
+        {
+            lock (lockObj)
+            {
+                IDataService ds = new KbtDataService();
+
+                var partner = ds.GetPartner(partnerId);
+
+                // Поиск инвест программы
+                NewInvestProgram program = ds.GetNewInvestProgram(sum);
+                if (program == null)
+                    throw new Exception("Не найдена программа удовлетворяющая условиям");
+
+                if ((partner.BalanceInner ?? 0) < sum)
+                    throw new Exception("Недостаточно средств на лицевом счете!");
+
+                bool isSandBox = false;
+                var rootPlaces = ds.GetPlaces(93, partner.id_parent);
+                uint rootPlaceId = 0;
+                if (rootPlaces.Count() > 0)
+                {
+                    rootPlaceId = rootPlaces.OrderBy(x => x.hash.Length).First().id_object;
+                    var places = ds.GetStructure(93, rootPlaceId);
+                    isSandBox = places.Count() >= 3;
+
+                    // если есть место определяем 
+                    /*if (partner.IsHasMarketPlace == true)
+                    {
+                        places = places.OrderBy(x => x.hash.Length);
+                        int count = 0;
+                        foreach (var place in places)
+                        {
+                            if (place.id_parent == rootPlaceId)
+                            {
+                                if (place.SortPosition == 0)
+                                {
+                                    leftHash = place.hash;
+                                    leftShoulderSum = place.PartnerBalanceInvestments ?? 0;
+                                }
+                                else
+                                {
+                                    rightHash = place.hash;
+                                    rightShoulderSum = place.PartnerBalanceInvestments ?? 0;
+                                }
+                            }
+                            if (count++ == 3)
+                            {
+                                break;
+                            }
+                        }
+                    }*/
+
+                }
+
+                //var inviter = ds.GetPartner(partner.InviterId.Value);
+
+                #region Создание мест
+                int countPlaces = ds.GetPlaceCount(camulativeMarketingId, partnerId);
+                // Если уровень ниже 4 то создаем место, иначе в песочницу
+                if (countPlaces == 0 && !isSandBox)//(ds.GetPlaceCount(camulativeMarketingId, partnerId) == 0 || isCreateNewPlace)
+                {
+                    this.CreateCamulativeProgramPlace(
+                        ds: ds,
+                        companyId: companyId,
+                        marketingId: camulativeMarketingId,
+                        partnerId: partnerId,
+                        objectName: partner.ObjectName,
+                        alias: partner.Login,
+                        sum: sum,
+                        date: date,
+                        user: user,
+                        pos: new PlacePos());
+                }
+
+                /*if(countPlaces > 0)
+                {
+                    // Повторная оплата по месту
+                    this.RePayPlace(
+                        ds: ds,
+                        partnerId: partnerId,
+                        companyId: companyId,
+                        marketingId: camulativeMarketingId,
+                        date: date,
+                        user: user);
+                }*/
+
+                #endregion
+                // создание договора
+                var documentId =  this.CreateDocumnt(
+                    ds: ds,
+                    companyId: companyId,
+                    partnerId: partnerId,
+                    programId: program.id_object,
+                    percent: program.YearPercent,
+                    date: date,
+                    sum: sum,
+                    isProlonged: isProlonged,
+                    user: user);
+
+                //добавляем сумму плечей всем вышестоящим, если есть место
+                if (documentId > 0 && partner.IsHasMarketPlace == true)
+                {
+                    var structure = ds.GetStructure(93);
+                    if (structure.Count() > 0)
+                    {
+                        var PartnerPlace = structure.SingleOrDefault(x => x.PartnerId == partnerId);
+                        if (PartnerPlace != null)
+                        {
+                            UpdateParentInvestShoulderSum(PartnerPlace, structure, sum);
+                        }
+                    }
+                }
+
+                // списание с лицевого счета
+                ds.PayPayment(ds.CreateInnerTransfer(
+                    accountName: "Остаток.ВнутреннийСчет",
+                    direction: TransferDirection.Output,
+                    companyId: companyId,
+                    partnerId: partnerId,
+                    documentId: documentId,
+                    article: $"Открытие инвест программы",
+                    date: date,
+                    sum: sum,
+                    paymentMethod: PaymentMethod.Inner,
+                    comment: $"Открытие инвест программы {program.ObjectName}",
+                    documentType: null,
+                    user: user), date);
+
+
+                System.Collections.ArrayList list = new System.Collections.ArrayList();
+                list.AddRange(new uint[] { 76, 86, 83, 292, 27396, 89, 14195, 274, 84, 24802, 293, 88, 90, 91, 275, 276, 277, 279, 280 });
+                if (!list.Contains(partnerId))
+                {
+
+                    /* Если пользователь не входит в список ручных пользователей - делаем начисление реф*/
+                    var investments = ds.GetInvestments(partnerId, "Активен");
+                    uint referalLimit = 0;
+                    decimal sumInvestments = 0;
+                    if (investments.Count() > 0)
+                    {
+                        foreach (var item in investments)
+                        {
+                            sumInvestments += item.Sum ?? 0;
+                        }
+
+                        var bigInvestment = investments.OrderByDescending(x => x.Sum).First();
+                        if (bigInvestment.ProgramId > 0)
+                        {
+                            var investProgram = ds.GetInvestProgram(bigInvestment.ProgramId);
+                            if (investProgram.ReferalLimit > 0)
+                            {
+                                referalLimit = (uint)investProgram.ReferalLimit;
+                            }
+                        }
+                    }
+
+                    bool flagIsAddPay = true;
+                    decimal sumReferals = 0;
+                    decimal sumForPay = sum * 0.1m;
+                    decimal extraPaySum = 0;
+                    if (referalLimit > 0)
+                    {
+
+                        var oneInvest = investments.OrderBy(x => x.StartDate).First();
+                        var transfers = ds.GetInnerTransfers(partnerId, null, "Реферальное вознаграждение", oneInvest.StartDate, null, null, null);
+                        foreach (var item in transfers)
+                        {
+                            sumReferals += item.PaymentSum ?? 0;
+                        }
+
+                        if (sumReferals >= referalLimit)
+                        {
+                            flagIsAddPay = false;
+                            extraPaySum = sumForPay;
+                        }
+                        else
+                        {
+                            decimal restSum = referalLimit - sumReferals;
+                            if (restSum < sumForPay)
+                            {
+                                extraPaySum = sumForPay - restSum;
+                                sumForPay = restSum;
+                            }
+
+                        }
+                        //decimal sumReferals = countCurrentReferalPaySum(partnerId);
+                    }
+
+                    if (extraPaySum > 0)
+                    {
+                        //TODO add log for extra pay
+                        ds.PayPayment(ds.CreateInnerTransfer(
+                            accountName: "Остаток.Вознаграждения",
+                            direction: TransferDirection.Input,
+                            companyId: companyId,
+                            partnerId: companyId,
+                            documentId: partnerId,
+                            article: "Реферальное вознаграждение экстра",
+                            date: date,
+                            sum: extraPaySum,
+                            paymentMethod: PaymentMethod.Inner,
+                            comment: $"Реферальное вознаграждение за {partner.ObjectName}",
+                            documentType: null,
+                            user: user), date);
+                    }
+
+                    if (flagIsAddPay)
+                    {
+                        // Агентское вознаграждение
+                        ds.PayPayment(ds.CreateInnerTransfer(
+                            accountName: "Остаток.Вознаграждения",
+                            direction: TransferDirection.Input,
+                            companyId: companyId,
+                            partnerId: partner.InviterId.Value,
+                            documentId: partnerId,
+                            article: "Реферальное вознаграждение",
+                            date: date,
+                            sum: sumForPay,//sum * 0.1m,
+                            paymentMethod: PaymentMethod.Inner,
+                            comment: $"Реферальное вознаграждение за {partner.ObjectName}",
+                            documentType: null,
+                            user: user), date);
+                    }
+
+                }
+
+
+
+
+
+
+
+                ds.UpdatePartnerActivity(partnerId, true);
+
+                return documentId;
+            }
+        }
+
+
+        /* old
+         public uint BuyInvestment(
+            uint companyId,
+            uint camulativeMarketingId,
+            uint partnerId,
+            decimal sum,
+            bool isProlonged,
+            bool isCreateNewPlace,
+            DateTime date,
             string user)
         {
             lock (lockObj)
@@ -457,7 +720,7 @@ namespace W2W.Marketing
 
                 return documentId;
             }
-        }
+        }*/
 
         public uint CreateTechPlace(
             uint companyId,
@@ -477,21 +740,56 @@ namespace W2W.Marketing
                     alias: "Техническое место",
                     sum: 300,
                     date: date,
-                    user: user);
+                    user: user,
+                    pos: new PlacePos());
             }
         }
 
-
-        public uint CreateCamulativeProgramPlace(
-            IDataService ds, 
+        public uint CreatePlace(
             uint companyId,
-            uint marketingId, 
+            uint marketingId,
             uint partnerId,
             string objectName,
             string alias,
             decimal sum,
             DateTime date,
-            string user)
+            string user,
+            uint activePlaceId,
+            int pos)
+        {
+            lock (lockObj)
+            {
+                var ds = new KbtDataService();
+                PlacePos position = new PlacePos();
+                position.Pos = pos;
+                position.Parent = ds.GetPlace(activePlaceId);
+
+                return this.CreateCamulativeProgramPlace(
+                    ds: ds,
+                    companyId: companyId,
+                    marketingId: marketingId,
+                    partnerId: partnerId,
+                    objectName: objectName,
+                    alias: alias,
+                    sum: sum,
+                    date: date,
+                    user: user,
+                    pos: position);
+            }
+        }
+
+
+        public uint CreateCamulativeProgramPlace(
+            IDataService ds,
+            uint companyId,
+            uint marketingId,
+            uint partnerId,
+            string objectName,
+            string alias,
+            decimal sum,
+            DateTime date,
+            string user,
+            PlacePos pos)
         {
             #region Создание места в накопительной программе
 
@@ -509,11 +807,11 @@ namespace W2W.Marketing
             var firstPlace = structure.SingleOrDefault(x => x.id_parent == companyPlace.id_object);
 
             MarketingPlace root = firstPlace ?? companyPlace;
-
+            var partner = new Partner();
             if (partnerId > 0)
             {
-                var partner = ds.GetPartner(partnerId);
-                
+                partner = ds.GetPartner(partnerId);
+
                 // Если есть места у самого партнера, то под него
                 // если нет, то под спонсора
                 var inviterPlaces = structure.Where(x => x.PartnerId.Value == partnerId);
@@ -523,7 +821,8 @@ namespace W2W.Marketing
                 }
 
                 if (inviterPlaces.Count() == 0)
-                    throw new Exception("У споснора нет мест в накопительной программе!");
+                    throw new Exception("У спонсора нет мест в накопительной программе!");
+
 
                 root = this.GetActivePlace(inviterPlaces, structure);
 
@@ -534,10 +833,15 @@ namespace W2W.Marketing
                 {
                     root = firstPlace;
                 }
+
             }
-            
+
             // Поиск позиции под корневым местом
-            var pos = FindPos(root, structure);
+            if (pos.Parent == null)
+            {
+                /*var*/
+                pos = FindPos(root, structure);
+            }
 
             uint newPlaceId = ds.CreatePlace(
                 marketingId: marketingId,
@@ -554,6 +858,18 @@ namespace W2W.Marketing
             var newPlace = ds.GetPlace(newPlaceId);
             ds.SetPlaceChildCount(pos.Parent.id_object, (pos.Parent.ChildCount ?? 0) + 1);
 
+            ds.SetPartnerMarketPlaceStatus(partnerId, true);
+
+            // если распределен и песочницы и у него куплен пакет инвестиций, то нужно обновить объем вышестоящим
+            if (pos.Parent != null && partnerId > 0 && partner.BalanceInvestments > 0)
+            {
+                structure = ds.GetStructure(marketingId);
+                if (structure.Count() > 0 && newPlace != null)
+                {
+                    UpdateParentInvestShoulderSum(newPlace, structure, sum);
+                }
+            }
+
             #endregion
 
             #region Пригласителю
@@ -565,15 +881,15 @@ namespace W2W.Marketing
             *****************************************************/
 
             // Проверка накоплений у пригласителя
-            var referCount = ds.GetReferCount(marketingId, root.PartnerId.Value);
-            var savings = ds.GetStructSavings(root.id_object);
-            foreach (var saving in savings)
-            {
-                if (this.ChargeOnTheMainWallet(referCount, saving.Level.Value))
-                {
-                    ds.PayPayment(saving.id_object, date);
-                }
-            }
+            /* var referCount = ds.GetReferCount(marketingId, root.PartnerId.Value);
+             var savings = ds.GetStructSavings(root.id_object);
+             foreach (var saving in savings)
+             {
+                 if (this.ChargeOnTheMainWallet(referCount, saving.Level.Value))
+                 {
+                     ds.PayPayment(saving.id_object, date);
+                 }
+             }*/
 
 
             #endregion
@@ -592,7 +908,7 @@ namespace W2W.Marketing
 
             // начисляем в 5 уровней вверх
             // Начисление в пять уровней
-            structure = ds.GetStructure(marketingId);
+            /*structure = ds.GetStructure(marketingId);
             var parent = newPlace;
             for (var i = 0; i < GetParentCount(newPlace, structure, 5); i++)
             {
@@ -691,10 +1007,10 @@ namespace W2W.Marketing
                         ds.RemovePayment(payment.id_object);
                 }
             }
-        }
+        }*/
 
-        #endregion
-          
+            #endregion
+
             #region __Выводы
 
             /*  
@@ -757,70 +1073,79 @@ namespace W2W.Marketing
         //}
 
 
-        void RePayParent(IDataService ds, uint companyId, MarketingPlace place, uint orderId,
-            IEnumerable<MarketingPlace> structure, int level, DateTime date, 
-            string user)
-        {
-            var referCount = ds.GetReferCount(place.MarketingId.Value, place.PartnerId.Value);
+        /*  void RePayParent(IDataService ds, uint companyId, MarketingPlace place, uint orderId,
+              IEnumerable<MarketingPlace> structure, int level, DateTime date, 
+              string user)
+          {
+              var referCount = ds.GetReferCount(place.MarketingId.Value, place.PartnerId.Value);
 
-            if (!this.IsFilled(place, structure) || referCount >= 3)
-            {
-                var id_p = ds.CreateInnerTransfer(
-                   accountName: "Остаток.Вознаграждения",
-                   direction: TransferDirection.Input,
-                   companyId: companyId,
-                   partnerId: place.PartnerId.Value,
-                   documentId: orderId,
-                   article: "Вознаграждение по накопительной программе",
-                   date: date,
-                   sum: 50,
-                   paymentMethod: PaymentMethod.Inner,
-                   comment: $"Вознаграждение по накопительной программе за {place.ObjectName}",
-                   documentType: null,
-                   user: user);
+              if (!this.IsFilled(place, structure) || referCount >= 3)
+              {
+                  var id_p = ds.CreateInnerTransfer(
+                     accountName: "Остаток.Вознаграждения",
+                     direction: TransferDirection.Input,
+                     companyId: companyId,
+                     partnerId: place.PartnerId.Value,
+                     documentId: orderId,
+                     article: "Вознаграждение по накопительной программе",
+                     date: date,
+                     sum: 50,
+                     paymentMethod: PaymentMethod.Inner,
+                     comment: $"Вознаграждение по накопительной программе за {place.ObjectName}",
+                     documentType: null,
+                     user: user);
 
-                ds.SetStructPaymentDetails(id_p, place.id_object, level);
+                  ds.SetStructPaymentDetails(id_p, place.id_object, level);
 
-                if (this.ChargeOnTheMainWallet(referCount, level))
-                {
-                    ds.PayPayment(id_p, date);
-                }
-            }
-        }
+                  if (this.ChargeOnTheMainWallet(referCount, level))
+                  {
+                      ds.PayPayment(id_p, date);
+                  }
+              }
+          }
 
-        uint RePayPlace(IDataService ds, uint partnerId,
-            uint companyId, uint marketingId, DateTime date, string user)
-        {
-            var places = ds.GetPlaces(marketingId, partnerId);
-            if (places.Count() == 0)
-                throw new Exception("У споснора нет мест в накопительной программе!");
+          uint RePayPlace(IDataService ds, uint partnerId,
+              uint companyId, uint marketingId, DateTime date, string user)
+          {
+              var places = ds.GetPlaces(marketingId, partnerId);
+              if (places.Count() == 0)
+                  throw new Exception("У спонсора нет мест в накопительной программе!");
 
-            var structure = ds.GetStructure(marketingId);
-            var activePlace = this.GetActivePlace(places, structure);
-            
-            for (var i = 0; 
-                i < this.GetParentCount(activePlace, structure, 5); i++)
-            {
-                var parent = this.GetParent(activePlace, structure, i + 1);
+              var structure = ds.GetStructure(marketingId);
+              var activePlace = this.GetActivePlace(places, structure);
 
-                RePayParent(
-                    ds: ds,
-                    companyId: companyId,
-                    place: parent,
-                    orderId: activePlace.id_object,
-                    level: i + 1,
-                    structure: structure,
-                    date: date,
-                    user: user);
-            }
+              for (var i = 0; 
+                  i < this.GetParentCount(activePlace, structure, 5); i++)
+              {
+                  var parent = this.GetParent(activePlace, structure, i + 1);
 
-            return activePlace.id_object;
-        }
+                  RePayParent(
+                      ds: ds,
+                      companyId: companyId,
+                      place: parent,
+                      orderId: activePlace.id_object,
+                      level: i + 1,
+                      structure: structure,
+                      date: date,
+                      user: user);
+              }
+
+              return activePlace.id_object;
+          }*/
 
         uint CreateDocumnt(IDataService ds, uint companyId, uint partnerId,
             uint programId, decimal percent,
             DateTime date, decimal sum, bool isProlonged, string user)
         {
+
+            System.Collections.ArrayList list = new System.Collections.ArrayList();
+            list.AddRange(new uint[] { 76, 86, 83, 292, 27396, 89, 14195, 274, 84, 24802, 293, 88, 90, 91, 275, 276, 277, 279, 280 });
+            if (list.Contains(partnerId))
+            {
+                date = DateTime.ParseExact("2019-05-14", "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+            }
+
+
             var documentId = ds.CreateInvestment(
                 companyId: companyId,
                 programId: programId,
@@ -833,14 +1158,34 @@ namespace W2W.Marketing
             /*
              * Т.К. в любом случае будут объекты-начисления на счет, то
              * нет разницы создавать их сейчас или по факту
+             * начинаем платить с определенного в конфиге дня
              */
+
+            int currentDayNumber = (int)date.DayOfWeek;
+            var company = ds.GetPartner(5);
+            int countAddDay = 0;
+            if (company != null)
+            {
+                countAddDay = company.Settings_StartPayWorkDay ?? 0;
+            }
+
+            int startWorkPayDay = ((countAddDay + currentDayNumber) % 7);
+            if (startWorkPayDay == 6)
+            {
+                countAddDay += 2;
+            }
+            else if (startWorkPayDay == 7)
+            {
+                countAddDay += 1;
+            }
 
 
             var days = Convert.ToInt32((date.Date.AddYears(1) - date.Date).TotalDays);
-            var reminder = percent * sum;
-            for (var i = 0; i < days; i++)
+            var reminder = percent * sum + sum;
+            var investment = ds.GetInvestment(documentId);
+            for (var i = countAddDay /*0*/; i < days; i++)
             {
-                var s = Math.Round(reminder / (days - i)  , 2);
+                var s = Math.Round(reminder / (days - i), 2);
                 if (i == days)
                     s = reminder;
 
@@ -850,32 +1195,31 @@ namespace W2W.Marketing
                        companyId: companyId,
                        partnerId: partnerId,
                        documentId: documentId,
-                       article: "Начисление процентов",
+                       article: "Начисление процентов и тела",
                        date: date.Date.AddDays(i + 1),
                        sum: s,
                        paymentMethod: PaymentMethod.Inner,
-                       comment: "Начисление процентов",
+                       comment: $"Начисление процентов и тела за {investment.ProgramName}",
                        documentType: "ОжидаемыйПлатеж",
                        user: user);
 
                 reminder -= s;
             }
-            var investment = ds.GetInvestment(documentId);
 
             // Возврат инвестиций
-            ds.CreateInnerTransfer(
-                   accountName: "Остаток.ВнутреннийСчет",
-                   direction: TransferDirection.Input,
-                   companyId: companyId,
-                   partnerId: partnerId,
-                   documentId: documentId,
-                   article: $"Закрытие инвест программы",
-                   date: date.AddDays(days),
-                   sum: sum,
-                   paymentMethod: PaymentMethod.Inner,
-                   comment: $"Закрытие инвест программы {investment.ProgramName}",
-                   documentType: "ОжидаемыйПлатеж",
-                   user: user);
+            /* ds.CreateInnerTransfer(
+                    accountName: "Остаток.ВнутреннийСчет",
+                    direction: TransferDirection.Input,
+                    companyId: companyId,
+                    partnerId: partnerId,
+                    documentId: documentId,
+                    article: $"Закрытие инвест программы",
+                    date: date.AddDays(days),
+                    sum: sum,
+                    paymentMethod: PaymentMethod.Inner,
+                    comment: $"Закрытие инвест программы {investment.ProgramName}",
+                    documentType: "ОжидаемыйПлатеж",
+                    user: user);*/
 
 
             // Начисление на инвест счет
@@ -973,7 +1317,7 @@ namespace W2W.Marketing
 
         // Возвращает вышестоящего в уровне
         // tested 26.10.2018 23:05
-        public MarketingPlace GetParent(MarketingPlace place, IEnumerable<MarketingPlace> structure, 
+        public MarketingPlace GetParent(MarketingPlace place, IEnumerable<MarketingPlace> structure,
             int level)
         {
             var parent = place;
@@ -999,7 +1343,7 @@ namespace W2W.Marketing
         }
 
         // tested 26.10.2018 18:39
-        public int GetParentCount(BaseObject place, 
+        public int GetParentCount(BaseObject place,
             IEnumerable<BaseObject> structure,
             int max)
         {
@@ -1214,105 +1558,470 @@ namespace W2W.Marketing
                  * + Трансформируем цепочку и по ней начисляем
                  */
 
+                //Остаток.Проценты
+                //TransferDirection.Input
+                //Остаток.Вознаграждения
+                //Вознаграждение со структуры
+                //Начисление процентов и тела
+
+                var partnerInvestments = new Dictionary<uint, PartnerInvestData>();
+                PartnerInvestData partnerInvestData = new PartnerInvestData();
                 var expected = ds.GetExpectedPayments(date);
                 if (expected.Count() > 0)
                 {
-                    var parents = new Dictionary<uint, uint>();
-                    var investments = new Dictionary<uint, decimal>();
-
-                    #region Fill Parents And Investments
-
-                    var partners = ds.GetPartners();
-                    foreach (var p in partners)
-                    {
-                        parents.Add(p.id_object, p.InviterId ?? 0);
-                        investments.Add(p.id_object, p.BalanceInvestments ?? 0);
-                    }
-                    #endregion
-
-                    var values = this.CalcInvestValues(parents, investments);
-                    var ranks = this.CalcInvestRanks(values);
-                    var percents = this.CalcInfinityPercents(parents, ranks);
-
                     foreach (var payment in expected)
                     {
-                        ds.PayPayment(payment.id_object, date);
-                        //todo: увеличить выплаченную сумму
-
-                        // если не последний платеж, то
-
-                        #region 10%
-                        var i = 0;
-                        var parentId = parents[payment.PartnerId.Value];
-                        while (parentId > 0)
+                        if (!partnerInvestments.ContainsKey(payment.PartnerId ?? 0))
                         {
-                            var levels = this.GetInvestBonusLevels(ranks[parentId]);
-                            if (i++ < levels)
-                            {
-                                ds.PayPayment(ds.CreateInnerTransfer(
-                                    accountName: "Остаток.Вознаграждения",
-                                    direction: TransferDirection.Input,
-                                    companyId: companyId,
-                                    partnerId: parentId,
-                                    documentId: payment.PartnerId.Value,
-                                    article: "Вознаграждение со структуры",
-                                    date: date,
-                                    sum: payment.PaymentSum.Value * 0.1m,
-                                    paymentMethod: PaymentMethod.Inner,
-                                    comment: $"Вознаграждение со структуры за {payment.PartnerObjectName}",
-                                    documentType: null,
-                                    user: user), date);
-                            }
-                            parentId = parents[parentId];
+                            partnerInvestData = createPartnerInvestData(payment.PartnerId ?? 0, ds);                            
+                            partnerInvestments.Add(payment.PartnerId ?? 0, partnerInvestData);
+                        }
+                        else
+                        {
+                            partnerInvestData = partnerInvestments[payment.PartnerId ?? 0];
                         }
 
-                        #endregion
-                        #region Бонус бесконечности
-                        var chain = this.GetInfinityPercentChain(parents, percents, payment.PartnerId.Value);
-                        var transformed = this.TransformInfinityBonusPercent(chain);
-                        parentId = parents[payment.PartnerId.Value];
-                        foreach (var p in transformed)
+                        decimal currentPaymentSum = payment.PaymentSum ?? 0;
+                        decimal totalPaidSum = currentPaymentSum + partnerInvestData.AllPaymentsSum;
+                        decimal extraSum = 0;
+                        decimal partSumForPay = 0;
+                        decimal doubleInvestSum = partnerInvestData.BalanceInvestments * 2;
+
+                        // проверка двухкратной выплаты суммы
+                        if (totalPaidSum > doubleInvestSum)
                         {
-                            if (p > 0)
+                            partnerInvestData.isCanPay = false;
+                            extraSum = totalPaidSum - doubleInvestSum;
+                            if (partnerInvestData.AllPaymentsSum < doubleInvestSum)
                             {
-                                ds.PayPayment(ds.CreateInnerTransfer(
-                                    accountName: "Остаток.Вознаграждения",
-                                    direction: TransferDirection.Input,
-                                    companyId: companyId,
-                                    partnerId: parentId,
-                                    documentId: payment.PartnerId.Value,
-                                    article: "Вознаграждение со структуры",
-                                    date: date,
-                                    sum: payment.PaymentSum.Value * p,
-                                    paymentMethod: PaymentMethod.Inner,
-                                    comment: $"Вознаграждение со структуры за {payment.PartnerObjectName}",
-                                    documentType: null,
-                                    user: user), date);
-
-
+                                partSumForPay = doubleInvestSum - partnerInvestData.AllPaymentsSum;
                             }
-                            parentId = parents[parentId];
+                            //TODO close invest package, add notification
                         }
-                        #endregion
 
-                        // если последний платеж, то проверить есть 
-                        // ли автопродление. Если оно есть, то
-                        // создать новый график платежей, а дату 
-                        // данного платежа перенести на год
+                        //проверка лимита доходности, если есть
+                        if (partnerInvestData.isCanPay && partnerInvestData.MaxLimit > 0)
+                        {
+                            if (partnerInvestData.AllBinaryPaymentsSum + currentPaymentSum > partnerInvestData.MaxLimit)
+                            {
+                                partnerInvestData.isCanPay = false;
+                                extraSum = partnerInvestData.AllBinaryPaymentsSum + currentPaymentSum - partnerInvestData.MaxLimit;
+                                if(partnerInvestData.AllBinaryPaymentsSum < partnerInvestData.MaxLimit)
+                                {
+                                    partSumForPay = partnerInvestData.MaxLimit - partnerInvestData.AllBinaryPaymentsSum;
+                                }
+                            }
+                        }
+
+                        if (partnerInvestData.isCanPay)
+                        {
+                            ds.PayPayment(payment.id_object, date);
+                        }
+                        else if (extraSum > 0)
+                        {
+                            //TODO add log for extra payments
+                            ds.PayPayment(ds.CreateInnerTransfer(
+                            accountName: "Остаток.Проценты",
+                            direction: TransferDirection.Input,
+                            companyId: companyId,
+                            partnerId: companyId,
+                            documentId: payment.OrderId ?? 0,
+                            article: "Начисление процентов и тела",
+                            date: date,
+                            sum: extraSum,
+                            paymentMethod: PaymentMethod.Inner,
+                            comment: $"Начисление процентов и тела за {payment.PartnerObjectName}",
+                            documentType: null,
+                            user: user), date);
+                        }
+                        if(partSumForPay > 0)
+                        {
+                            ds.PayPayment(ds.CreateInnerTransfer(
+                            accountName: "Остаток.Проценты",
+                            direction: TransferDirection.Input,
+                            companyId: companyId,
+                            partnerId: payment.PartnerId ?? 0,
+                            documentId: payment.OrderId ?? 0,
+                            article: "Начисление процентов и тела",
+                            date: date,
+                            sum: partSumForPay,
+                            paymentMethod: PaymentMethod.Inner,
+                            comment: $"Начисление процентов и тела за {payment.PartnerObjectName}",
+                            documentType: null,
+                            user: user), date);
+                        }
                     }
                 }
+
+                var structure = ds.GetStructure(93);
+                if (structure.Count() > 0)
+                {
+                    foreach (var item in structure)
+                    {
+                        if (!partnerInvestments.ContainsKey(item.PartnerId ?? 0))
+                        {
+                            partnerInvestData = createPartnerInvestData(item.PartnerId ?? 0, ds);
+                            partnerInvestments.Add(item.PartnerId ?? 0, partnerInvestData);
+                        }
+                        else
+                        {
+                            partnerInvestData = partnerInvestments[item.PartnerId ?? 0];
+                        }
+
+
+                        decimal currentPaymentSum = 0;                        
+                        if (item.PartnerBinaryLeftShoulderSum > item.PartnerBinaryRightShoulderSum)
+                        {
+                            currentPaymentSum = item.PartnerBinaryRightShoulderSum ?? 0;
+                        }
+                        else
+                        {
+                            currentPaymentSum = item.PartnerBinaryLeftShoulderSum ?? 0;
+                        }
+                        
+                        decimal partSumForPay = currentPaymentSum * 0.1m;
+                        decimal totalPaidSum = partSumForPay + partnerInvestData.AllPaymentsSum;
+                        decimal extraSum = 0;
+                        decimal doubleInvestSum = partnerInvestData.BalanceInvestments * 2;
+                        if (partnerInvestData.isCanPay)
+                        {
+
+                            // проверка двухкратной выплаты суммы
+                            if (totalPaidSum > doubleInvestSum)
+                            {
+                                partnerInvestData.isCanPay = false;
+                                extraSum = totalPaidSum - doubleInvestSum;
+                                if (partnerInvestData.AllPaymentsSum < doubleInvestSum)
+                                {
+                                    partSumForPay = doubleInvestSum - partnerInvestData.AllPaymentsSum;
+                                }
+                                //TODO close invest package, add notification
+                            }
+
+                            //проверка лимита доходности, если есть
+                            if (partnerInvestData.isCanPay && partnerInvestData.MaxLimit > 0)
+                            {
+                                if (partnerInvestData.AllBinaryPaymentsSum + partSumForPay > partnerInvestData.MaxLimit)
+                                {
+                                    partnerInvestData.isCanPay = false;
+                                    extraSum = partnerInvestData.AllBinaryPaymentsSum + partSumForPay - partnerInvestData.MaxLimit;
+                                    if (partnerInvestData.AllBinaryPaymentsSum < partnerInvestData.MaxLimit)
+                                    {
+                                        partSumForPay = partnerInvestData.MaxLimit - partnerInvestData.AllBinaryPaymentsSum;
+                                    }
+                                }
+                            }
+
+                            //проверка дневного лимита
+                            if (partnerInvestData.isCanPay)
+                            {
+                                 if(partSumForPay > partnerInvestData.Program.DayLimit)
+                                {
+                                    partnerInvestData.isCanPay = false;
+                                    extraSum = partSumForPay - partnerInvestData.Program.DayLimit;
+                                    partSumForPay = partnerInvestData.Program.DayLimit;
+                                }
+                                /*else
+                                {
+                                    partSumForPay = currentPaymentSum;
+                                }*/
+                                
+                                if (partSumForPay + partnerInvestData.AllBinaryPaymentsSum > partnerInvestData.Program.MonthLimit)
+                                {
+                                    decimal monthDiffSum = partnerInvestData.Program.MonthLimit - partnerInvestData.AllBinaryPaymentsSum;
+                                    extraSum += monthDiffSum;
+                                    partSumForPay -= monthDiffSum;
+                                    partnerInvestData.isCanPay = false;
+                                }
+                            }
+
+                            if(extraSum > 0)
+                            {
+                                ds.PayPayment(ds.CreateInnerTransfer(
+                                      accountName: "Остаток.Вознаграждения",
+                                      direction: TransferDirection.Input,
+                                      companyId: companyId,
+                                      partnerId: companyId,
+                                      documentId: item.PartnerId ?? 0,
+                                      article: "Вознаграждение со структуры",
+                                      date: date,
+                                      sum: extraSum,
+                                      paymentMethod: PaymentMethod.Inner,
+                                      comment: $"Вознаграждение со структуры за {ShortName(item)}",
+                                      documentType: null,
+                                      user: user), date);
+                            }
+
+                            if (partSumForPay > 0)
+                            {
+                                ds.PayPayment(ds.CreateInnerTransfer(
+                                      accountName: "Остаток.Вознаграждения",
+                                      direction: TransferDirection.Input,
+                                      companyId: companyId,
+                                      partnerId: item.PartnerId ?? 0,
+                                      documentId: item.PartnerId ?? 0,
+                                      article: "Вознаграждение со структуры",
+                                      date: date,
+                                      sum: partSumForPay,
+                                      paymentMethod: PaymentMethod.Inner,
+                                      comment: $"Вознаграждение со структуры за {ShortName(item)}",
+                                      documentType: null,
+                                      user: user), date);
+                            }
+                            if (partSumForPay > 0 || extraSum > 0)
+                            {
+                                decimal LeftSum = item.PartnerBinaryLeftShoulderSum ?? 0;
+                                LeftSum -= currentPaymentSum;
+                                decimal RightSum = item.PartnerBinaryRightShoulderSum ?? 0;
+                                RightSum -= currentPaymentSum;
+                                ds.UpdatePartnerBinarySum(LeftSum, RightSum, item.id_object);
+                            }
+                        }
+                        else
+                        {
+                            //TODO log
+                            if (partSumForPay > 0)
+                            {
+                                //extraSum = partSumForPay;
+                                ds.PayPayment(ds.CreateInnerTransfer(
+                                      accountName: "Остаток.Вознаграждения",
+                                      direction: TransferDirection.Input,
+                                      companyId: companyId,
+                                      partnerId: companyId,
+                                      documentId: item.PartnerId ?? 0,
+                                      article: "Вознаграждение со структуры",
+                                      date: date,
+                                      sum: partSumForPay,
+                                      paymentMethod: PaymentMethod.Inner,
+                                      comment: $"Вознаграждение со структуры за {ShortName(item)}",
+                                      documentType: null,
+                                      user: user), date);
+
+                                decimal LeftSum = item.PartnerBinaryLeftShoulderSum ?? 0;
+                                LeftSum -= currentPaymentSum;
+                                decimal RightSum = item.PartnerBinaryRightShoulderSum ?? 0;
+                                RightSum -= currentPaymentSum;
+                                ds.UpdatePartnerBinarySum(LeftSum, RightSum, item.id_object);
+                            }
+                        }
+                    }
+                }
+
+
+                //old
+                /*      var parents = new Dictionary<uint, uint>();
+                  var investments = new Dictionary<uint, decimal>();
+
+                  #region Fill Parents And Investments
+
+                  var partners = ds.GetPartners();
+                  foreach (var p in partners)
+                  {
+                      parents.Add(p.id_object, p.InviterId ?? 0);
+                      investments.Add(p.id_object, p.BalanceInvestments ?? 0);
+                  }
+                  #endregion
+
+                  var values = this.CalcInvestValues(parents, investments);
+                  var ranks = this.CalcInvestRanks(values);
+                  var percents = this.CalcInfinityPercents(parents, ranks);
+
+                  foreach (var payment in expected)
+                  {
+                      ds.PayPayment(payment.id_object, date);
+                      //todo: увеличить выплаченную сумму
+
+                      // если не последний платеж, то
+
+                      #region 10%
+                      var i = 0;
+                      var parentId = parents[payment.PartnerId.Value];
+                      while (parentId > 0)
+                      {
+                          var levels = this.GetInvestBonusLevels(ranks[parentId]);
+                          if (i++ < levels)
+                          {
+                              ds.PayPayment(ds.CreateInnerTransfer(
+                                  accountName: "Остаток.Вознаграждения",
+                                  direction: TransferDirection.Input,
+                                  companyId: companyId,
+                                  partnerId: parentId,
+                                  documentId: payment.PartnerId.Value,
+                                  article: "Вознаграждение со структуры",
+                                  date: date,
+                                  sum: payment.PaymentSum.Value * 0.1m,
+                                  paymentMethod: PaymentMethod.Inner,
+                                  comment: $"Вознаграждение со структуры за {payment.PartnerObjectName}",
+                                  documentType: null,
+                                  user: user), date);
+                          }
+                          parentId = parents[parentId];
+                      }*/
+
+                #endregion
+                #region Бонус бесконечности
+                /*var chain = this.GetInfinityPercentChain(parents, percents, payment.PartnerId.Value);
+                var transformed = this.TransformInfinityBonusPercent(chain);
+                parentId = parents[payment.PartnerId.Value];
+                foreach (var p in transformed)
+                {
+                    if (p > 0)
+                    {
+                        ds.PayPayment(ds.CreateInnerTransfer(
+                            accountName: "Остаток.Вознаграждения",
+                            direction: TransferDirection.Input,
+                            companyId: companyId,
+                            partnerId: parentId,
+                            documentId: payment.PartnerId.Value,
+                            article: "Вознаграждение со структуры",
+                            date: date,
+                            sum: payment.PaymentSum.Value * p,
+                            paymentMethod: PaymentMethod.Inner,
+                            comment: $"Вознаграждение со структуры за {payment.PartnerObjectName}",
+                            documentType: null,
+                            user: user), date);
+
+
+                    }
+                    parentId = parents[parentId];
+                }*/
+                #endregion
+
+                // если последний платеж, то проверить есть 
+                // ли автопродление. Если оно есть, то
+                // создать новый график платежей, а дату 
+                // данного платежа перенести на год
+                /*     }
+                 }*/
             }
+        }
+
+
+        public string ShortName(MarketingPlace place)
+        {
+
+            var name = place.ObjectName;
+            if (!string.IsNullOrWhiteSpace(place.PartnerFirstName) ||
+                !string.IsNullOrWhiteSpace(place.PartnerLastName) ||
+                !string.IsNullOrWhiteSpace(place.PartnerMiddleName))
+            {
+                name = "";
+                if (!string.IsNullOrWhiteSpace(place.PartnerLastName))
+                    name += place.PartnerLastName + " ";
+                if (!string.IsNullOrWhiteSpace(place.PartnerFirstName))
+                    name += place.PartnerFirstName.Substring(0, 1) + ".";
+                if (!string.IsNullOrWhiteSpace(place.PartnerMiddleName))
+                    name += place.PartnerMiddleName.Substring(0, 1) + ".";
+            }
+            return name;
+        }
+
+        public PartnerInvestData createPartnerInvestData(uint PartnerId, IDataService ds)
+        {
+            PartnerInvestData partnerInvestData = new PartnerInvestData();
+            var investments = ds.GetInvestments(PartnerId, "Активен");
+            decimal MaxLimit = 0;
+            decimal allPaymentsSum = 0;
+            if (investments.Count() > 0)
+            {
+                var oneInvest = investments.OrderBy(x => x.StartDate).First();
+                decimal AllBinaryPayments = CalculateAllBinaryPayments(PartnerId, ds, oneInvest.StartDate ?? DateTime.Now);
+
+                allPaymentsSum = CalculateAllPayments(PartnerId, ds, oneInvest.StartDate ?? DateTime.Now);
+                allPaymentsSum += AllBinaryPayments;
+                var partner = ds.GetPartner(PartnerId);
+                var bigInvestment = investments.OrderByDescending(x => x.Sum).First();
+                if (bigInvestment.ProgramId > 0)
+                {
+                    var investProgram = ds.GetInvestProgram(bigInvestment.ProgramId);
+                    if (investProgram.MaxLimit > 0)
+                    {
+                        MaxLimit = (decimal)investProgram.MaxLimit;
+                    }
+                    partnerInvestData = new PartnerInvestData
+                    {
+                        Program = investProgram,
+                        BalanceInvestments = partner.BalanceInvestments ?? 0,
+                        MaxLimit = MaxLimit,
+                        AllPaymentsSum = allPaymentsSum,
+                        isCanPay = true,
+                        AllBinaryPaymentsSum = AllBinaryPayments
+                    };
+
+                }
+            }
+            return partnerInvestData;
+        }
+
+        public decimal CalculatePayMonthBinaryPayments(uint partnerId, IDataService ds)
+        {
+            decimal sum = 0;
+            int month = DateTime.Now.Month;
+            int year = DateTime.Now.Year;
+            DateTime startMonthDate = DateTime.ParseExact(year + "-" + month + "-01", "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+            var transfers = ds.GetInnerTransfers(partnerId, null, "Вознаграждение со структуры", startMonthDate, DateTime.Now, null, null);
+            if (transfers.Count() > 0)
+            {
+                foreach (var item in transfers)
+                {
+                    sum += item.PaymentSum ?? 0;
+                }
+            }
+            return sum;
+        }
+
+        public decimal CalculateAllBinaryPayments(uint partnerId, IDataService ds, DateTime startDate)
+        {
+            decimal sum = 0;
+            var transfers = ds.GetInnerTransfers(partnerId, null, "Вознаграждение со структуры", startDate, null, null, null);
+            if (transfers.Count() > 0)
+            {
+                foreach (var item in transfers)
+                {
+                    sum += item.PaymentSum ?? 0;
+                }
+            }
+            return sum;
+        }
+
+        public decimal CalculateAllPayments(uint partnerId, IDataService ds, DateTime startDate)
+        {
+            decimal sum = 0;
+            var transfers = ds.GetInnerTransfers(partnerId, null, "Начисление процентов и тела", startDate, null, null, null);
+            if (transfers.Count() > 0)
+            {
+                foreach (var item in transfers)
+                {
+                    sum += item.PaymentSum ?? 0;
+                }
+            }
+            var transfersRef = ds.GetInnerTransfers(partnerId, null, "Реферальное вознаграждение", startDate, null, null, null);
+            if (transfersRef.Count() > 0)
+            {
+                foreach (var item in transfersRef)
+                {
+                    sum += item.PaymentSum ?? 0;
+                }
+            }
+            return sum;
+        }
+
+        public void LogPayments(string data)
+        {
+            if (mainPath == null)
+            {
+                string path = System.Reflection.Assembly.GetExecutingAssembly().Location;
+                //once you have the path you get the directory with:
+                mainPath = System.IO.Path.GetDirectoryName(path);
+            }
+            System.IO.StreamWriter sw = new System.IO.StreamWriter(mainPath + "/log.txt", true);
+            sw.WriteLine(data);
+            sw.Close();
         }
 
 
 
 
-
-
-
-
-
-        #endregion
 
         /*
          * Когда создается место под компанией, оно всегда одно
@@ -1862,7 +2571,7 @@ namespace W2W.Marketing
 
         public void ConfirmWithdrawal(uint id_object, string wallet, string tag, string comment, string user)
         {
-            System.IO.File.WriteAllText(@"C:\www\w2w\service.w2w.fund", "1");
+            //System.IO.File.WriteAllText(@"C:\www\w2w\service.w2w.fund", "1");
 
             lock (lockObj)
             {
@@ -1883,16 +2592,17 @@ namespace W2W.Marketing
                     throw new Exception("Заявка не найдена!");
                 }
 
-                
+
                 if (request.ProcessedStatus != "Не обработана")
                 {
                     throw new Exception("Заявка уже обработана!");
                 }
-                
+
 
                 using (var client = new BinanceClient())
                 {
                     var resultSum = request.CurrencySum;
+
 
                     // получаем комиссию от бинанс и если она получена, то плюсуем к сумме вывода
                     var comission = client.GetAssetDetails();
@@ -1904,13 +2614,13 @@ namespace W2W.Marketing
                         resultSum = request.CurrencySum + binance_comission;
                     }
 
-                    
+
                     if (!string.IsNullOrWhiteSpace(request.Tag))
                     {
                         var withdraw = client.Withdraw(
                            asset: request.Currency,
                            address: request.WalletAddress,
-                           amount: resultSum ?? 0, 
+                           amount: resultSum ?? 0,
                            addressTag: request.Tag);
                     }
                     else
@@ -1920,7 +2630,7 @@ namespace W2W.Marketing
                            address: request.WalletAddress,
                            amount: resultSum ?? 0);
                     }
-                    
+
 
                     ds.SetWithdrawalDetails(
                         id_object: id_object,
@@ -1931,7 +2641,7 @@ namespace W2W.Marketing
                         comment: comment,
                         user: user);
 
-                   
+
                     var id_payment = ds.AddPayment(
                         direction: TransferDirection.Output,
                         companyId: 5,
@@ -1945,7 +2655,7 @@ namespace W2W.Marketing
                         desctiption: "Вывод средств",
                         paymentComission: binance_comission,
                         user: user);
-                        
+
                 }
             }
         }
@@ -1988,6 +2698,39 @@ namespace W2W.Marketing
                     user: user);
 
                 ds.PayPayment(id_transfer, DateTime.Now);
+            }
+        }
+
+        public void UpdateParentInvestShoulderSum(MarketingPlace place, IEnumerable<MarketingPlace> structure, decimal sum)
+        {
+            IDataService ds = new KbtDataService();
+            var parentPlace = GetParent(place, structure, 1);
+            decimal ShoulderSum = 0;
+            decimal BinaryShoulderSum = 0;
+            bool IsLeftShoulder = true;
+            while (parentPlace != null)
+            {
+                if (parentPlace.PartnerId == 5)
+                {
+                    break;
+                }
+                if (place.SortPosition == 0)
+                {
+                    ShoulderSum = parentPlace.PartnerLeftShoulderInvestSum != null ? (decimal)parentPlace.PartnerLeftShoulderInvestSum : 0;
+                    BinaryShoulderSum = parentPlace.PartnerBinaryLeftShoulderSum != null ? (decimal)parentPlace.PartnerBinaryLeftShoulderSum : 0;
+                    IsLeftShoulder = true;
+                }
+                else
+                {
+                    ShoulderSum = parentPlace.PartnerRightShoulderInvestSum != null ? (decimal)parentPlace.PartnerRightShoulderInvestSum : 0;
+                    BinaryShoulderSum = parentPlace.PartnerBinaryRightShoulderSum != null ? (decimal)parentPlace.PartnerBinaryRightShoulderSum : 0;
+                    IsLeftShoulder = false;
+                }
+                ShoulderSum += sum;
+                BinaryShoulderSum += sum * 0.9m;
+                ds.UpdatePartnerInvestSum(IsLeftShoulder, ShoulderSum, BinaryShoulderSum, (uint)parentPlace.id_object);
+                place = parentPlace;
+                parentPlace = GetParent(parentPlace, structure, 1);
             }
         }
     }

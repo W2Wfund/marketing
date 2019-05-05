@@ -51,6 +51,20 @@ namespace W2W.Marketing
             DateTime date,
             string user);
 
+
+        [OperationContract]
+        uint CreatePlace(
+            uint companyId,
+            uint marketingId,
+            uint partnerId,
+            string objectName,
+            string alias,
+            decimal sum,
+            DateTime date,
+            string user,
+            uint activePlaceId,
+            int pos);
+
         //[OperationContract]
         //void SetNullBalance(decimal sum);
 
