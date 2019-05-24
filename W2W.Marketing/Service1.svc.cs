@@ -38,6 +38,7 @@ namespace W2W.Marketing
         public decimal DayBinaryPaymentsSum { get; set; }
         public decimal MonthBinaryPaymentsSum { get; set; }
         public decimal AllBinaryPaymentsSum { get; set; }
+        public decimal AllReferalPaymentsSum { get; set; }
 
         public Partner partner { get; set; }
     }
@@ -512,10 +513,10 @@ namespace W2W.Marketing
                         {
                             maxLimit = (uint)investProgram.MaxLimit;
                         }
-                        var oneInvest = investments.OrderBy(x => x.StartDate).First();
-                        decimal AllBinaryPayments = CalculateAllBinaryPayments(partnerId, ds, oneInvest.StartDate ?? DateTime.Now);
+                        //var oneInvest = investments.OrderBy(x => x.StartDate).First();
+                        decimal AllBinaryPayments = CalculateAllBinaryPayments(partnerId, ds, investments/*oneInvest.StartDate ?? DateTime.Now*/);
 
-                        allPaymentsSum = CalculateAllPayments(partnerId, ds, oneInvest.StartDate ?? DateTime.Now);
+                        allPaymentsSum = CalculateAllPayments(partnerId, ds, investments/*oneInvest.StartDate ?? DateTime.Now*/);
                         allPaymentsSum += AllBinaryPayments;
                     }
                 }
@@ -1659,58 +1660,52 @@ namespace W2W.Marketing
                             partnerInvestData = partnerInvestments[payment.PartnerId ?? 0];
                         }
                         //"---оборот левого плеча по бинару\r\n---оборот правого плеча по бинару"
-                        string partnerLog = $"--{DateTime.Now.ToString("dd.MM.yyyy HH:mm:ss")}\r\n—-Фио/логин { ShortName(partnerInvestData.partner)}/{partnerInvestData.partner.Login} \r\n";
-                        decimal currentPaymentSum = payment.PaymentSum ?? 0;
-                        decimal totalPaidSum = currentPaymentSum + partnerInvestData.AllPaymentsSum;
+                        //string partnerLog = $"--{DateTime.Now.ToString("dd.MM.yyyy HH:mm:ss")}\r\n—-Фио/логин { ShortName(partnerInvestData.partner)}/{partnerInvestData.partner.Login} \r\n";
+                        decimal partSumForPay = payment.PaymentSum ?? 0;
+                        /*decimal totalPaidSum = partSumForPay + partnerInvestData.AllPaymentsSum;
                         decimal extraSum = 0;
-                        decimal partSumForPay = 0;
                         decimal doubleInvestSum = partnerInvestData.BalanceInvestments * 2;
 
+                        partnerLog += $"---Начисление %\r\n---проверка двухкратной выплаты суммы. План. платеж по %:{partSumForPay.ToString()}, Всего:{partnerInvestData.AllPaymentsSum.ToString()} Двукратная сумма:{doubleInvestSum.ToString()};";
                         // проверка двухкратной выплаты суммы
                         if (totalPaidSum > doubleInvestSum)
                         {
                             partnerInvestData.isCanPay = false;
                             extraSum = totalPaidSum - doubleInvestSum;
-                            partnerLog += $"---Начисление %\r\n---проверка двухкратной выплаты суммы. План. платеж по %:{currentPaymentSum.ToString()}, Всего:{partnerInvestData.AllPaymentsSum.ToString()} Двукратная сумма:{doubleInvestSum.ToString()}; Компании:{extraSum.ToString()};";
+                            
                             if (partnerInvestData.AllPaymentsSum < doubleInvestSum)
                             {
-                                partSumForPay = doubleInvestSum - partnerInvestData.AllPaymentsSum;
-                                partnerLog += $"Платеж: {partSumForPay.ToString()}";
+                                partSumForPay -= extraSum;//doubleInvestSum - partnerInvestData.AllPaymentsSum;
+                                //partnerLog += $"Платеж: {partSumForPay.ToString()}";
                             }
-                            partnerLog += "\r\n;Закрытие инвест пакета";
-                            //TODO close invest package, add notification
+                            partnerLog += $"Компании:{extraSum.ToString()};Платеж: {partSumForPay.ToString()}\r\n;Закрытие инвест пакета\r\n";                            
+                            
                             closeInvestment(companyId, payment.PartnerId ?? 0, payment.OrderId ?? 0, DateTime.Now, user, ds);
-                            //TerminateInvestment(companyId, payment.PartnerId,payment.OrderId, 0, DateTime.Now,user);
-                            //ds.AddNotice(payment.PartnerId,"Превышены лимиты по пакету и он был закрыт");
                         }
 
+                        partnerLog += $"---Начисление %\r\n---проверка лимита доходности. Лимит:{partnerInvestData.MaxLimit.ToString()} Все начисления + текущий платеж сумма:{(partnerInvestData.AllPaymentsSum + partSumForPay).ToString()};";
                         //проверка лимита доходности, если есть
                         if (partnerInvestData.isCanPay && partnerInvestData.MaxLimit > 0)
                         {
-                            if (partnerInvestData.AllPaymentsSum + currentPaymentSum > partnerInvestData.MaxLimit)
+                            if (partnerInvestData.AllPaymentsSum + partSumForPay > partnerInvestData.MaxLimit)
                             {
-                                partnerLog += $"---Начисление %\r\n---проверка лимита доходности. Лимит:{partnerInvestData.MaxLimit.ToString()} Все начисления + текущий платеж сумма:{(partnerInvestData.AllPaymentsSum + currentPaymentSum).ToString()};";
                                 partnerInvestData.isCanPay = false;
-                                extraSum = partnerInvestData.AllPaymentsSum + currentPaymentSum - partnerInvestData.MaxLimit;
-                                partnerLog += $"Компании:{extraSum.ToString()}";
+                                extraSum += partnerInvestData.AllPaymentsSum + partSumForPay - partnerInvestData.MaxLimit;                                
                                 if (partnerInvestData.AllPaymentsSum < partnerInvestData.MaxLimit)
                                 {
-                                    partSumForPay -= partnerInvestData.MaxLimit - partnerInvestData.AllPaymentsSum;
+                                    partSumForPay -= partnerInvestData.AllPaymentsSum + partSumForPay - partnerInvestData.MaxLimit;//partnerInvestData.MaxLimit - partnerInvestData.AllPaymentsSum;
                                     //partnerLog += $"Платеж: {partSumForPay.ToString()}";
                                 }
-                                partnerLog += $"Платеж: {partSumForPay.ToString()}";
-                                partnerLog += "\r\n";
+                                partnerLog += $"Компании:{extraSum.ToString()};Платеж: {partSumForPay.ToString()}\r\n";                                
                                 closeInvestment(companyId, payment.PartnerId ?? 0, payment.OrderId ?? 0, DateTime.Now, user, ds);
-                                //TerminateInvestment(companyId, payment.PartnerId, payment.OrderId, 0, DateTime.Now, user);
-                                //ds.AddNotice(payment.PartnerId, "Превышены лимиты по пакету и он был закрыт");
                             }
-                        }
+                        }*/
 
-                        if (partnerInvestData.isCanPay)
+                        //if (partnerInvestData.isCanPay)
                         {
                             ds.PayPayment(payment.id_object, date);
                         }
-                        else if (extraSum > 0)
+                       /* else if (extraSum > 0)
                         {                            
                             ds.PayPayment(ds.CreateInnerTransfer(
                             accountName: "Остаток.Проценты",
@@ -1745,10 +1740,11 @@ namespace W2W.Marketing
                             partnerInvestData.AllPaymentsSum += partSumForPay;
                             partnerInvestments[payment.PartnerId ?? 0] = partnerInvestData;
                         }
-                        if (!partnerInvestData.isCanPay)
+                        LogPayments(partnerLog);*/
+                        /*if (!partnerInvestData.isCanPay)
                         {
                             LogPayments(partnerLog);
-                        }
+                        }*/
                     }
                 }
 
@@ -1779,7 +1775,7 @@ namespace W2W.Marketing
                         }
 
                         decimal partSumForPay = currentPaymentSum * 0.1m;
-                        decimal totalPaidSum = partSumForPay + partnerInvestData.AllPaymentsSum;
+                        //decimal totalPaidSum = partSumForPay + partnerInvestData.AllPaymentsSum;
                         decimal extraSum = 0;
                         decimal doubleInvestSum = partnerInvestData.BalanceInvestments * 2;
                         partnerLog += $"---оборот левого плеча по бинару:{ item.PartnerBinaryLeftShoulderSum.ToString()}\r\n--- оборот правого плеча по бинару:{item.PartnerBinaryRightShoulderSum.ToString()}\r\n---сумма к начислению по выбранному обороту:{partSumForPay.ToString()}\r\n";
@@ -1812,10 +1808,10 @@ namespace W2W.Marketing
                                 //partnerLog += "\r\n";
                             }
 
+                            partnerLog += $"---проверка лимита доходности. Лимит:{partnerInvestData.MaxLimit.ToString()} Все платежи + текущий платеж сумма:{(partnerInvestData.AllPaymentsSum + partSumForPay).ToString()};";
                             //проверка лимита доходности, если есть
                             if (/*partnerInvestData.isCanPay &&*/ partnerInvestData.MaxLimit > 0)
                             {
-                                partnerLog += $"---проверка лимита доходности. Лимит:{partnerInvestData.MaxLimit.ToString()} Все платежи + текущий платеж сумма:{(partnerInvestData.AllPaymentsSum + partSumForPay).ToString()};";
                                 if (partnerInvestData.AllPaymentsSum + partSumForPay > partnerInvestData.MaxLimit)
                                 {
                                     partnerInvestData.isCanPay = false;
@@ -1823,11 +1819,12 @@ namespace W2W.Marketing
                                     extraSum += maxLimitDiff > partSumForPay ? partSumForPay : maxLimitDiff;
                                     partSumForPay -= maxLimitDiff > partSumForPay ? partSumForPay : maxLimitDiff;
                                 }
-                                partnerLog += $"Компании:{extraSum.ToString()};Платеж: {partSumForPay.ToString()}\r\n";
+                                partnerLog += $"Компании:{extraSum.ToString()};Платеж: {partSumForPay.ToString()};Закрытие пакета\r\n";
                                 //partnerLog += "\r\n";
                                 closeInvestment(companyId, item.PartnerId ?? 0, 0, DateTime.Now, user, ds);
                             }
 
+                            partnerLog += $"---проверка двухкратной выплаты суммы. Всего:{partnerInvestData.AllPaymentsSum.ToString()} Двукратная сумма:{doubleInvestSum.ToString()};";
                             // проверка двухкратной выплаты суммы
                             if (partSumForPay + partnerInvestData.AllPaymentsSum > doubleInvestSum)
                             {
@@ -1835,8 +1832,7 @@ namespace W2W.Marketing
                                 decimal doubleDiffSum = partSumForPay + partnerInvestData.AllPaymentsSum - doubleInvestSum;
                                 extraSum += doubleDiffSum > partSumForPay ? partSumForPay : doubleDiffSum;
                                 partSumForPay -= doubleDiffSum > partSumForPay ? partSumForPay : doubleDiffSum;
-                                partnerLog += $"---проверка двухкратной выплаты суммы. Всего:{partnerInvestData.AllPaymentsSum.ToString()} Двукратная сумма:{doubleInvestSum.ToString()}; Компании:{extraSum.ToString()};";
-                                partnerLog += $"Платеж: {partSumForPay.ToString()}\r\n";
+                                partnerLog += $"Компании:{extraSum.ToString()};Платеж: {partSumForPay.ToString()};Закрытие пакета\r\n";
                                 
                                 closeInvestment(companyId, item.PartnerId ?? 0, 0, DateTime.Now, user, ds);
                             }
@@ -2060,11 +2056,11 @@ namespace W2W.Marketing
             //partnerInvestData.partner = partner;
             if (investments.Count() > 0)
             {
-                var oneInvest = investments.OrderBy(x => x.StartDate).First();
-                decimal AllBinaryPayments = CalculateAllBinaryPayments(PartnerId, ds, oneInvest.StartDate ?? DateTime.Now);
+                //var oneInvest = investments.OrderBy(x => x.StartDate).First();
+                decimal AllBinaryPayments = CalculateAllBinaryPayments(PartnerId, ds, investments/* oneInvest.StartDate ?? DateTime.Now*/);
 
-                allPaymentsSum = CalculateAllPayments(PartnerId, ds, oneInvest.StartDate ?? DateTime.Now);
-                allPaymentsSum += AllBinaryPayments;
+                decimal allRefPaymentsSum = CalculateAllPayments(PartnerId, ds, investments/* oneInvest.StartDate ?? DateTime.Now*/);
+                allPaymentsSum += AllBinaryPayments + allRefPaymentsSum;
                 var partner = ds.GetPartner(PartnerId);
                 var bigInvestment = investments.OrderByDescending(x => x.Sum).First();
                 if (bigInvestment.ProgramId > 0)
@@ -2084,6 +2080,7 @@ namespace W2W.Marketing
                         AllBinaryPaymentsSum = AllBinaryPayments,
                         partner = partner,
                         DayBinaryPaymentsSum = 0,
+                        AllReferalPaymentsSum = allRefPaymentsSum,
                         MonthBinaryPaymentsSum = CalculatePayMonthBinaryPayments(PartnerId, ds)
                     };
 
@@ -2114,37 +2111,42 @@ namespace W2W.Marketing
             return sum;
         }
 
-        public decimal CalculateAllBinaryPayments(uint partnerId, IDataService ds, DateTime startDate)
+        public decimal CalculateAllBinaryPayments(uint partnerId, IDataService ds, IEnumerable<Investment> investments /*DateTime startDate*/)
         {
             decimal sum = 0;
-            var transfers = ds.GetInnerTransfers(partnerId, null, "Вознаграждение со структуры", startDate, null, null, null);
-            if (transfers.Count() > 0)
-            {
-                foreach (var item in transfers)
+            foreach(var invest in investments) {
+                var transfers = ds.GetInnerTransfers(partnerId, null, "Вознаграждение со структуры", null/*startDate*/, null, invest.id_object, null);
+                if (transfers.Count() > 0)
                 {
-                    sum += item.PaymentSum ?? 0;
+                    foreach (var item in transfers)
+                    {
+                        sum += item.PaymentSum ?? 0;
+                    }
                 }
             }
             return sum;
         }
 
-        public decimal CalculateAllPayments(uint partnerId, IDataService ds, DateTime startDate)
+        public decimal CalculateAllPayments(uint partnerId, IDataService ds, IEnumerable<Investment> investments /*DateTime startDate*/)
         {
             decimal sum = 0;
-            var transfers = ds.GetInnerTransfers(partnerId, null, "Начисление процентов и тела", startDate, null, null, null);
-            if (transfers.Count() > 0)
+            foreach (var invest in investments)
             {
-                foreach (var item in transfers)
+                /*    var transfers = ds.GetInnerTransfers(partnerId, null, "Начисление процентов и тела", startDate, null, null, null);
+                if (transfers.Count() > 0)
                 {
-                    sum += item.PaymentSum ?? 0;
-                }
-            }
-            var transfersRef = ds.GetInnerTransfers(partnerId, null, "Реферальное вознаграждение", startDate, null, null, null);
-            if (transfersRef.Count() > 0)
-            {
-                foreach (var item in transfersRef)
+                    foreach (var item in transfers)
+                    {
+                        sum += item.PaymentSum ?? 0;
+                    }
+                }*/
+                var transfersRef = ds.GetInnerTransfers(partnerId, null, "Реферальное вознаграждение", null, null, invest.id_object, null);
+                if (transfersRef.Count() > 0)
                 {
-                    sum += item.PaymentSum ?? 0;
+                    foreach (var item in transfersRef)
+                    {
+                        sum += item.PaymentSum ?? 0;
+                    }
                 }
             }
             return sum;
