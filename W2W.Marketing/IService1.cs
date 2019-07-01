@@ -96,7 +96,11 @@ namespace W2W.Marketing
             uint investmentId, 
             decimal returnSum,
             DateTime date, 
-            string user);
+            string user,
+            bool? isNotClose);
+
+        [OperationContract]
+        void SendEmail(string to, string subject, string body);
     }
 
 
