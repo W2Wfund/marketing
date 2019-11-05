@@ -20,8 +20,6 @@ using W2W.ModelKBT.Entities;
 using MimeKit;
 using MailKit;
 
-
-
 namespace W2W.Marketing
 {
     public class PlacePos
@@ -387,8 +385,26 @@ namespace W2W.Marketing
 
                 var partner = ds.GetPartner(partnerId);
 
-                // Поиск инвест программы
-                NewInvestProgram program = ds.GetNewInvestProgram(sum);
+               /* BinanceClient.SetDefaultOptions(new BinanceClientOptions()
+                {
+                    ApiCredentials = new ApiCredentials(
+                        key: ConfigurationManager.AppSettings["binance.key"],
+                        secret: ConfigurationManager.AppSettings["binance.secret"])                    
+                });
+                using (var client = new BinanceClient())
+                {
+                    var comission = client.GetAssetDetails();
+                    decimal binance_comission = 0;
+
+                    if (comission.Success)
+                    {
+                        //binance_comission = comission.Data[request.Currency].WithdrawFee;
+                    }
+                }*/
+
+
+                    // Поиск инвест программы
+                    NewInvestProgram program = ds.GetNewInvestProgram(sum);
                 if (program == null)
                     throw new Exception("Не найдена программа удовлетворяющая условиям");
 
@@ -545,8 +561,7 @@ namespace W2W.Marketing
                     decimal sumForPay = sum * 0.1m;
                     decimal extraPaySum = 0;
 
-                    //todo если закрыли инвест пакет - то как узнать лимит - какие были пакеты и активные и какие там лимиты
-
+                    
                     if (countInvestments > 0)
                     {
                         refLog += $"--Реферальное вознаграждение\r\n---Лимит с личного приглашенного:{referalLimit.ToString()}\r\n---Лимит доходности:{maxLimit.ToString()}\r\n---Сумма всех начислений:{allPaymentsSum.ToString()};";
@@ -594,7 +609,7 @@ namespace W2W.Marketing
                                 sumForPay = doubleInvestSum - allPaymentsSum + sumForPay;
                             }*/
 
-                            //TODO close invest package, add notification
+                            
                             if (!isCloseInvest)
                             {
                                 closeInvestment(companyId, parentPartner.id_object, 0, DateTime.Now, user, ds);
@@ -610,8 +625,7 @@ namespace W2W.Marketing
 
 
                     if (extraPaySum > 0)
-                    {
-                        //TODO add log for extra pay
+                    {                        
                         ds.PayPayment(ds.CreateInnerTransfer(
                                 accountName: "Остаток.Вознаграждения",
                                 direction: TransferDirection.Input,
@@ -1820,6 +1834,8 @@ namespace W2W.Marketing
                         string partnerLog = $"--{DateTime.Now.ToString("dd.MM.yyyy HH:mm:ss")}\r\n—-Фио/логин {ShortName(item)}/{(partnerInvestData.partner != null ? partnerInvestData.partner.Login : "")} \r\n";
 
                         decimal currentPaymentSum = 0;
+                        item.PartnerBinaryLeftShoulderSum = item.PartnerBinaryLeftShoulderSum != null ? (decimal)item.PartnerBinaryLeftShoulderSum : 0;
+                        item.PartnerBinaryRightShoulderSum = item.PartnerBinaryRightShoulderSum != null ? (decimal)item.PartnerBinaryRightShoulderSum : 0;
                         if (item.PartnerBinaryLeftShoulderSum > item.PartnerBinaryRightShoulderSum)
                         {
                             currentPaymentSum = item.PartnerBinaryRightShoulderSum ?? 0;
@@ -2819,10 +2835,12 @@ namespace W2W.Marketing
 
         public void ConfirmWithdrawal(uint id_object, string wallet, string tag, string comment, string user)
         {
-            //System.IO.File.WriteAllText(@"C:\www\w2w\service.w2w.fund", "1");
+            // System.IO.File.WriteAllText(@"C:\www\w2w\service.w2w.fund\111.txt", "444");
 
             lock (lockObj)
             {
+             
+
                 BinanceClient.SetDefaultOptions(new BinanceClientOptions()
                 {
                     ApiCredentials = new ApiCredentials(
@@ -2832,8 +2850,10 @@ namespace W2W.Marketing
                     LogWriters = new List<TextWriter> { Console.Out }*/
                 });
 
+               
                 IDataService ds = new KbtDataService();
                 var request = ds.GetWithdrawalRequest(id_object);
+               
 
                 if (request == null)
                 {
@@ -2845,21 +2865,25 @@ namespace W2W.Marketing
                 {
                     throw new Exception("Заявка уже обработана!");
                 }
-
+                
 
                 using (var client = new BinanceClient())
                 {
                     var resultSum = request.CurrencySum;
 
+                   
 
                     // получаем комиссию от бинанс и если она получена, то плюсуем к сумме вывода
                     var comission = client.GetAssetDetails();
                     decimal binance_comission = 0;
-
+                    
                     if (comission.Success)
                     {
                         binance_comission = comission.Data[request.Currency].WithdrawFee;
-                        resultSum = request.CurrencySum + binance_comission;
+                        if (request.Currency != "USDT")
+                        {
+                            resultSum = request.CurrencySum + binance_comission;
+                        }
                     }
 
 
